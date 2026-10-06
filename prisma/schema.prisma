@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model CandidateProfile {
+  id                String   @id @default(cuid())
+  name              String
+  headline          String?
+  yearsExperience   Int
+  currentRole       String?
+  currentCompany    String?
+  minimumSalaryLpa  Float?
+  targetSalaryLpa   Float?
+  preferredLocations String[]
+  targetRoles       String[]
+  primarySkills     String[]
+  secondarySkills   String[]
+  companyPreferences String[]
+  excludedKeywords  String[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  matches           JobMatch[]
+}
+
+model Job {
+  id             String    @id @default(cuid())
+  externalId     String?
+  source         String
+  url            String    @unique
+  title          String
+  company       String
+  location      String?
+  description   String?
+  salaryText    String?
+  minSalaryLpa  Float?
+  maxSalaryLpa  Float?
+  experienceText String?
+  postedAt      DateTime?
+  fetchedAt     DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  matches       JobMatch[]
+
+  @@index([source])
+  @@index([company])
+  @@index([postedAt])
+}
+
+model JobMatch {
+  id                  String   @id @default(cuid())
+  jobId               String
+  candidateProfileId  String
+  matchScore          Float
+  skillScore          Float?
+  experienceScore     Float?
+  salaryScore         Float?
+  locationScore       Float?
+  titleScore          Float?
+  aiReasoning         String?
+  recommendation      String?
+  status              MatchStatus @default(NEW)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  job                 Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidateProfile   CandidateProfile @relation(fields: [candidateProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, candidateProfileId])
+  @@index([matchScore])
+  @@index([status])
+}
+
+enum MatchStatus {
+  NEW
+  SHORTLISTED
+  SKIPPED
+  APPLIED
+}
+
+model AgentRun {
+  id          String   @id @default(cuid())
+  agentName   String
+  status      AgentRunStatus @default(RUNNING)
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  itemsFound  Int      @default(0)
+  itemsProcessed Int   @default(0)
+  errorMessage String?
+  metadata    Json?
+}
+
+enum AgentRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
