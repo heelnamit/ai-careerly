@@ -163,7 +163,7 @@ export default function DashboardPage() {
           <Link
             aria-label="Your profile"
             className="sidebar-link"
-            href="/#profile"
+            href="/profile"
             title="Your profile"
           >
             <Icon name="user" />
