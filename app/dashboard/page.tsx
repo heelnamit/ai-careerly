@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { hasDashboardSession } from "@/lib/auth/dashboard";
+import { prisma } from "@/lib/db/prisma";
+import SearchPanel from "./search-panel";
 
 type IconName =
   | "home"
@@ -101,30 +105,6 @@ const navigation: { label: string; icon: IconName; href: string }[] = [
   { label: "Insights", icon: "chart", href: "/dashboard#insights" },
 ];
 
-const metrics = [
-  {
-    label: "Jobs found",
-    value: "0",
-    note: "Your next opportunity starts here",
-    icon: "briefcase" as const,
-    tone: "violet",
-  },
-  {
-    label: "Shortlisted",
-    value: "0",
-    note: "Save roles you love",
-    icon: "bookmark" as const,
-    tone: "mint",
-  },
-  {
-    label: "Applications",
-    value: "0",
-    note: "Keep every application in sync",
-    icon: "file" as const,
-    tone: "blue",
-  },
-];
-
 const setupSteps = [
   { label: "Connect job sources", state: "Next up" },
   { label: "Complete your profile", state: "Locked" },
@@ -132,7 +112,58 @@ const setupSteps = [
   { label: "Review application settings", state: "Locked" },
 ];
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  if (!(await hasDashboardSession())) redirect("/login");
+
+  const [jobs, totalJobs, shortlisted, applications] = await Promise.all([
+    prisma.job.findMany({
+      orderBy: { fetchedAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        title: true,
+        company: true,
+        location: true,
+        url: true,
+        source: true,
+        salaryText: true,
+        postedAt: true,
+      },
+    }),
+    prisma.job.count(),
+    prisma.jobMatch.count({ where: { status: "SHORTLISTED" } }),
+    prisma.jobMatch.count({ where: { status: "APPLIED" } }),
+  ]);
+
+  const metrics = [
+    {
+      label: "Jobs found",
+      value: totalJobs.toLocaleString(),
+      note: "Opportunities saved to your workspace",
+      icon: "briefcase" as const,
+      tone: "violet",
+    },
+    {
+      label: "Shortlisted",
+      value: shortlisted.toLocaleString(),
+      note: "Roles you’ve marked as a favorite",
+      icon: "bookmark" as const,
+      tone: "mint",
+    },
+    {
+      label: "Applications",
+      value: applications.toLocaleString(),
+      note: "Applications tracked in your workspace",
+      icon: "file" as const,
+      tone: "blue",
+    },
+  ];
+
+  const dashboardJobs = jobs.map((job) => ({
+    ...job,
+    postedAt: job.postedAt?.toISOString() ?? null,
+  }));
+
   return (
     <main className="dashboard-shell">
       <aside className="sidebar" aria-label="Main navigation">
@@ -181,6 +212,11 @@ export default function DashboardPage() {
           <div className="avatar" aria-label="Profile placeholder">
             Y
           </div>
+          <form action="/api/dashboard/logout" method="post">
+            <button className="dashboard-mobile-signout" type="submit">
+              Sign out
+            </button>
+          </form>
         </div>
       </aside>
 
@@ -195,9 +231,9 @@ export default function DashboardPage() {
               <span className="status-dot" />
               Your workspace
             </span>
-            <span className="avatar avatar-small" aria-hidden="true">
-              Y
-            </span>
+            <form action="/api/dashboard/logout" method="post">
+              <button className="dashboard-signout" type="submit">Sign out</button>
+            </form>
           </div>
         </header>
 
@@ -205,7 +241,7 @@ export default function DashboardPage() {
           <section className="welcome-row" id="overview">
             <div>
               <p className="eyebrow">YOUR CAREER, IN MOTION</p>
-              <h1>Job matches</h1>
+              <h1>Job discovery</h1>
               <p className="welcome-copy">
                 A little closer to the role that feels like you.
               </p>
@@ -240,37 +276,15 @@ export default function DashboardPage() {
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">YOUR NEXT MOVE</p>
-                  <h2 id="matches-title">Top matched jobs</h2>
+                  <h2 id="matches-title">Latest jobs</h2>
                 </div>
                 <span className="pill pill-neutral">
                   <Icon className="h-3.5 w-3.5" name="search" />
-                  Best match
+                  LinkedIn results
                 </span>
               </div>
 
-              <div className="empty-state">
-                <div className="empty-art" aria-hidden="true">
-                  <div className="empty-art-orbit" />
-                  <div className="empty-art-card empty-art-card-back" />
-                  <div className="empty-art-card empty-art-card-front">
-                    <Icon className="h-7 w-7" name="briefcase" />
-                  </div>
-                  <span className="empty-art-spark empty-art-spark-one">✦</span>
-                  <span className="empty-art-spark empty-art-spark-two">✧</span>
-                </div>
-                <h3>Your next great role is out there</h3>
-                <p>
-                  Connect a job source and we’ll bring relevant opportunities
-                  right here, ranked around what matters to you.
-                </p>
-                <Link className="button button-secondary" href="/#milestone">
-                  Connect job sources
-                  <Icon className="h-4 w-4" name="arrow" />
-                </Link>
-                <span className="empty-caption">
-                  No jobs yet — your matches will show up here
-                </span>
-              </div>
+              <SearchPanel jobs={dashboardJobs} />
             </section>
 
             <aside className="panel setup-panel" aria-labelledby="setup-title">

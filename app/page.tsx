@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { hasDashboardSession } from "@/lib/auth/dashboard";
+import { prisma } from "@/lib/db/prisma";
 
 type NavigationIcon = "home" | "briefcase" | "bookmark" | "file" | "chart";
 
@@ -57,21 +60,100 @@ const navigation: { label: string; icon: NavigationIcon; href: string }[] = [
   { label: "Insights", icon: "chart", href: "/dashboard#insights" },
 ];
 
-const stats = [
-  { label: "Jobs found", value: "0", note: "Ready to discover", tone: "violet" },
-  { label: "Strong matches", value: "0", note: "Matched to your profile", tone: "mint" },
-  { label: "Shortlisted", value: "0", note: "Roles saved for later", tone: "blue" },
-  { label: "Applications", value: "0", note: "Tracked in one place", tone: "violet" },
-];
+export default async function Home() {
+  if (!(await hasDashboardSession())) redirect("/login");
 
-const milestones = [
-  "Candidate profile",
-  "Job source connection",
-  "Job deduplication",
-  "AI-powered matching",
-];
+  const [profile, jobsFound, matchCount, shortlisted, applications] =
+    await Promise.all([
+      prisma.candidateProfile.findFirst({
+        orderBy: { updatedAt: "desc" },
+        select: {
+          name: true,
+          headline: true,
+          yearsExperience: true,
+          currentRole: true,
+          primarySkills: true,
+          secondarySkills: true,
+          targetRoles: true,
+          preferredLocations: true,
+          companyPreferences: true,
+        },
+      }),
+      prisma.job.count(),
+      prisma.jobMatch.count(),
+      prisma.jobMatch.count({ where: { status: "SHORTLISTED" } }),
+      prisma.jobMatch.count({ where: { status: "APPLIED" } }),
+    ]);
 
-export default function Home() {
+  const hasJobSource =
+    Boolean(process.env.APIFY_API_TOKEN) &&
+    Boolean(process.env.APIFY_LINKEDIN_ACTOR_ID);
+  const stats = [
+    {
+      label: "Jobs found",
+      value: jobsFound.toLocaleString(),
+      note: "Saved from LinkedIn searches",
+      icon: "briefcase" as const,
+      tone: "violet",
+    },
+    {
+      label: "Personalized matches",
+      value: matchCount.toLocaleString(),
+      note: "Linked to your candidate profile",
+      icon: "briefcase" as const,
+      tone: "mint",
+    },
+    {
+      label: "Shortlisted",
+      value: shortlisted.toLocaleString(),
+      note: "Roles saved for later",
+      icon: "bookmark" as const,
+      tone: "blue",
+    },
+    {
+      label: "Applications",
+      value: applications.toLocaleString(),
+      note: "Tracked in your workspace",
+      icon: "file" as const,
+      tone: "violet",
+    },
+  ];
+  const milestones = [
+    {
+      label: "Candidate profile",
+      state: profile ? "Saved" : "Set up next",
+      complete: Boolean(profile),
+    },
+    {
+      label: "LinkedIn job search",
+      state: hasJobSource ? "Ready to search" : "Needs configuration",
+      complete: hasJobSource,
+    },
+    {
+      label: "Job collection",
+      state: jobsFound
+        ? `${jobsFound.toLocaleString()} saved`
+        : "Waiting for search",
+      complete: jobsFound > 0,
+    },
+    {
+      label: "Personalized matching",
+      state: matchCount
+        ? `${matchCount.toLocaleString()} matches`
+        : "Not connected yet",
+      complete: matchCount > 0,
+    },
+  ];
+  const completedSteps = milestones.filter((step) => step.complete).length;
+
+  const profileSkills = [
+    ...(profile?.primarySkills ?? []),
+    ...(profile?.secondarySkills ?? []),
+  ];
+  const profileRoles = profile?.targetRoles ?? [];
+  const profileLocations = profile?.preferredLocations ?? [];
+  const profileCompanies = profile?.companyPreferences ?? [];
+
   return (
     <main className="dashboard-shell">
       <aside className="sidebar" aria-label="Main navigation">
@@ -122,8 +204,13 @@ export default function Home() {
             <span className="sidebar-tooltip">Settings</span>
           </Link>
           <div className="avatar" aria-label="Profile placeholder">
-            Y
+            {profile?.name?.charAt(0).toUpperCase() ?? "Y"}
           </div>
+          <form action="/api/dashboard/logout" method="post">
+            <button className="dashboard-mobile-signout" type="submit">
+              Sign out
+            </button>
+          </form>
         </div>
       </aside>
 
@@ -138,9 +225,14 @@ export default function Home() {
               <span className="status-dot" />
               Your workspace
             </span>
-            <span className="avatar avatar-small" aria-hidden="true">
-              Y
-            </span>
+            {profile?.name && (
+              <span className="overview-user-name">{profile.name}</span>
+            )}
+            <form action="/api/dashboard/logout" method="post">
+              <button className="dashboard-signout" type="submit">
+                Sign out
+              </button>
+            </form>
           </div>
         </header>
 
@@ -148,14 +240,21 @@ export default function Home() {
           <section className="welcome-row" id="overview">
             <div>
               <p className="eyebrow">YOUR CAREER, IN MOTION</p>
-              <h1>Your job search, at a glance</h1>
+              <h1>
+                {profile?.name
+                  ? `Welcome back, ${profile.name}`
+                  : "Your job search, at a glance"}
+              </h1>
               <p className="welcome-copy">
-                Your personal AI job search, thoughtfully organized.
+                Your LinkedIn job discovery workspace, profile, and saved activity.
               </p>
             </div>
-            <Link className="button button-primary" href="/profile">
-              <span aria-hidden="true">✦</span>
-              Complete your profile
+            <Link
+              className="button button-primary"
+              href={profile ? "/dashboard" : "/profile"}
+            >
+              <span aria-hidden="true">{profile ? "⌕" : "✦"}</span>
+              {profile ? "Search jobs" : "Complete your profile"}
               <span aria-hidden="true">↗</span>
             </Link>
           </section>
@@ -167,16 +266,7 @@ export default function Home() {
             {stats.map((stat) => (
               <article className="metric-card" key={stat.label}>
                 <div className={`metric-icon metric-icon-${stat.tone}`}>
-                  <NavigationGlyph
-                    name={
-                      stat.label === "Jobs found" ||
-                      stat.label === "Strong matches"
-                        ? "briefcase"
-                        : stat.label === "Shortlisted"
-                          ? "bookmark"
-                          : "file"
-                    }
-                  />
+                  <NavigationGlyph name={stat.icon} />
                 </div>
                 <div className="metric-details">
                   <p>{stat.label}</p>
@@ -201,27 +291,35 @@ export default function Home() {
                   <p className="eyebrow">YOUR NEXT MOVE</p>
                   <h2 id="milestone-title">Connect your job sources</h2>
                 </div>
-                <span className="pill pill-pending">
-                  <span className="status-dot status-dot-muted" />
-                  Getting started
+                <span
+                  className={`pill ${completedSteps === milestones.length ? "pill-neutral" : "pill-pending"}`}
+                >
+                  <span
+                    className={`status-dot${completedSteps === milestones.length ? "" : " status-dot-muted"}`}
+                  />
+                  {completedSteps} of {milestones.length} steps
                 </span>
               </div>
 
               <p className="home-panel-copy">
-                Your workspace is ready. Connect a job source to start finding
-                relevant roles, then we’ll organize and rank them around your
-                experience and preferences.
+                Your LinkedIn search, saved jobs, and candidate profile are
+                connected here. Profile-based ranking is not connected yet.
               </p>
 
               <div className="home-milestone-list">
                 {milestones.map((item, index) => (
-                  <div className="home-milestone-item" key={item}>
+                  <div
+                    className={`home-milestone-item${item.complete ? " home-milestone-item-complete" : ""}`}
+                    key={item.label}
+                  >
                     <span className="home-milestone-icon">
-                      {index === 0 ? "✓" : index + 1}
+                      {item.complete ? "✓" : index + 1}
                     </span>
-                    <span>{item}</span>
-                    <span className="home-milestone-state">
-                      {index === 0 ? "Ready" : "Coming up"}
+                    <span>{item.label}</span>
+                    <span
+                      className={`home-milestone-state${item.complete ? " home-milestone-state-complete" : ""}`}
+                    >
+                      {item.state}
                     </span>
                   </div>
                 ))}
@@ -229,10 +327,10 @@ export default function Home() {
 
               <div className="home-milestone-actions">
                 <Link className="button button-primary" href="/dashboard">
-                  Open job matches
+                  Open job search
                   <span aria-hidden="true">↗</span>
                 </Link>
-                <span>Setup progress · 1 of 4 steps</span>
+                <span>Workspace setup · {completedSteps} of {milestones.length} ready</span>
               </div>
             </section>
 
@@ -247,36 +345,73 @@ export default function Home() {
                 </div>
                 <div>
                   <p className="eyebrow">TARGET PROFILE</p>
-                  <h2 id="profile-title">Your ideal next role</h2>
+                  <h2 id="profile-title">
+                    {profile
+                      ? "Your candidate profile"
+                      : "Build your candidate profile"}
+                  </h2>
                 </div>
               </div>
 
-              <div className="home-role">
-                <span>Preferred role</span>
-                <strong>Senior Frontend / React</strong>
-              </div>
+              {profile ? (
+                <>
+                  <div className="home-role">
+                    <span>Target roles</span>
+                    <strong>
+                      {profileRoles.length
+                        ? profileRoles.join(" · ")
+                        : profile.currentRole ??
+                          profile.headline ??
+                          "Add target roles"}
+                    </strong>
+                  </div>
 
-              <div className="home-profile-details">
-                <div>
-                  <span>Experience</span>
-                  <strong>8+ years</strong>
-                </div>
-                <div>
-                  <span>Core skills</span>
-                  <strong>React · TypeScript · JavaScript</strong>
-                </div>
-                <div>
-                  <span>Also experienced in</span>
-                  <strong>Node.js · REST APIs · Architecture</strong>
-                </div>
-                <div>
-                  <span>Company preference</span>
-                  <strong>Product-focused teams</strong>
-                </div>
-              </div>
+                  <div className="home-profile-details">
+                    <div>
+                      <span>Experience</span>
+                      <strong>
+                        {profile.yearsExperience}{" "}
+                        {profile.yearsExperience === 1 ? "year" : "years"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Skills</span>
+                      <strong>
+                        {profileSkills.length
+                          ? profileSkills.join(" · ")
+                          : "No skills added yet"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Preferred locations</span>
+                      <strong>
+                        {profileLocations.length
+                          ? profileLocations.join(" · ")
+                          : "No locations added yet"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Company preferences</span>
+                      <strong>
+                        {profileCompanies.length
+                          ? profileCompanies.join(" · ")
+                          : "Open to opportunities"}
+                      </strong>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="home-panel-copy">
+                  Add your target roles, skills, and locations. They’ll be
+                  available here to guide your job search.
+                </p>
+              )}
 
               <Link className="home-profile-link" href="/profile">
-                Personalize your search <span aria-hidden="true">↗</span>
+                {profile
+                  ? "Edit candidate profile"
+                  : "Create candidate profile"}{" "}
+                <span aria-hidden="true">↗</span>
               </Link>
             </aside>
           </div>

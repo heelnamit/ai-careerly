@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { hasDashboardSession } from "@/lib/auth/dashboard";
 import ProfileForm from "./profile-form";
 
 const navigation = [
@@ -6,7 +8,9 @@ const navigation = [
   { label: "Job matches", href: "/dashboard" },
 ];
 
-export default function ProfilePage() {
+export default async function ProfilePage() {
+  if (!(await hasDashboardSession())) redirect("/login");
+
   return (
     <main className="dashboard-shell">
       <aside className="sidebar" aria-label="Main navigation">

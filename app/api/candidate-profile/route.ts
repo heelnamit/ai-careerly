@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { candidateProfileSchema } from "@/lib/validation/candidate-profile";
+import { hasDashboardSessionInRequest } from "@/lib/auth/dashboard";
 
 export async function POST(request: Request) {
+  if (!hasDashboardSessionInRequest(request)) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
 
@@ -43,7 +48,11 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!hasDashboardSessionInRequest(request)) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const profile = await prisma.candidateProfile.findFirst();
 
@@ -65,6 +74,10 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+  if (!hasDashboardSessionInRequest(request)) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
 

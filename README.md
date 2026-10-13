@@ -1,43 +1,42 @@
 # AI Career Agent
 
-Your personal AI-powered job discovery and career assistant.
+A private job-discovery workspace with LinkedIn job search, saved job results,
+and a candidate profile.
 
-## V1 goal
+## What works today
 
-V1 focuses on:
+- Shared-password dashboard login with a signed, HTTP-only session cookie.
+- Candidate profile creation, editing, and display on the overview page.
+- LinkedIn job discovery through the configured Apify actor.
+- Up to five keyword/location searches per request, with posting-date and
+  per-search result-limit options.
+- Job normalization, URL-based deduplication, and persistence to PostgreSQL.
+- Overview and dashboard counts for saved jobs, matches, shortlist, and
+  applications.
+- Job cards linking to the original LinkedIn posting.
 
-- Candidate profile
-- Job ingestion
-- Job normalization
-- Duplicate detection
-- Job matching
-- Match scoring
-- AI reasoning
-- Ranked job dashboard
-
-Application automation is intentionally **not** part of the first milestone.
+Profile-based job scoring, AI matching, shortlist/application management
+actions, scheduled searches, and application automation are not implemented
+yet. The related counters show database state and may remain zero until those
+workflows are built.
 
 ## Stack
 
-- Next.js
-- React
-- TypeScript
+- Next.js, React, and TypeScript
 - Tailwind CSS
-- Prisma
-- Supabase PostgreSQL
+- Prisma and PostgreSQL (Supabase supported)
 - Zod
-- Apify (next milestone)
-- OpenAI API (next milestone)
+- Apify
 - pnpm
 
 ## Prerequisites
 
-Install:
-
 - Node.js 20.9+
 - pnpm 10+
+- A PostgreSQL database
+- An Apify account and LinkedIn jobs actor, for job search
 
-Check:
+Check your local versions:
 
 ```bash
 node -v
@@ -51,19 +50,49 @@ corepack enable
 corepack prepare pnpm@10.17.1 --activate
 ```
 
-## Run locally
+## Local setup
+
+Install dependencies and create your environment file:
 
 ```bash
 pnpm install
-```
-
-Create the environment file:
-
-```bash
 cp .env.example .env
 ```
 
-For the current starter UI, you can leave the API keys blank.
+Set these values in `.env`:
+
+| Variable | Required for | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | Dashboard data and profiles | PostgreSQL connection string. |
+| `DASHBOARD_PASSWORD` | Dashboard login | Use at least 16 characters. |
+| `DASHBOARD_SESSION_SECRET` | Dashboard login | Use a random secret of at least 32 characters. |
+| `APIFY_API_TOKEN` | LinkedIn searches | Keep server-side; never prefix with `NEXT_PUBLIC_`. |
+| `APIFY_LINKEDIN_ACTOR_ID` | LinkedIn searches | Actor ID used to collect LinkedIn jobs. |
+| `INTERNAL_API_KEY` | Optional server-to-server API access | Keep private. Browser dashboard requests use the session cookie instead. |
+| `OPENAI_API_KEY` | Future AI features | Not currently used by the implemented search or matching flow. |
+
+For example, generate a session secret with:
+
+```bash
+openssl rand -hex 32
+```
+
+Do not commit `.env` or expose passwords, tokens, or session secrets in
+client-side variables. After changing environment values, restart the
+development server.
+
+## Database
+
+The Prisma schema includes `CandidateProfile`, `Job`, `JobMatch`, and
+`AgentRun`. After setting `DATABASE_URL`, generate the Prisma client and apply
+the existing migrations:
+
+```bash
+pnpm prisma generate
+pnpm prisma migrate dev
+```
+
+## Run and validate
 
 Start the development server:
 
@@ -71,84 +100,107 @@ Start the development server:
 pnpm dev
 ```
 
-Open:
+Open [http://localhost:3000](http://localhost:3000). The overview, dashboard,
+and profile redirect to `/login` until you sign in with `DASHBOARD_PASSWORD`.
 
-http://localhost:3000
-
-Health check:
-
-http://localhost:3000/api/health
-
-## Supabase + Prisma
-
-Create a Supabase project and copy its PostgreSQL connection string into:
-
-```env
-DATABASE_URL="..."
-```
-
-Then run:
+Other useful commands:
 
 ```bash
-pnpm prisma generate
-pnpm prisma migrate dev --name init
+pnpm lint
+pnpm exec tsc --noEmit
+pnpm build
 ```
 
-The Prisma schema currently contains:
+Health check: [http://localhost:3000/api/health](http://localhost:3000/api/health)
 
-- CandidateProfile
-- Job
-- JobMatch
-- AgentRun
+## Using the dashboard
+
+1. Sign in at `/login`.
+2. Create or update your candidate profile at `/profile`.
+3. Open `/dashboard` and add one or more job-title/keyword and location
+   searches. You can add up to five searches, choose a posting window, and set
+   a result limit of up to 50 jobs per search.
+4. Select **Find jobs**. Apify runs server-side and may take a few minutes.
+   Successful results are deduplicated and saved; the overview metrics and job
+   list use the persisted database records.
+
+An individual search can fail while other searches succeed. The dashboard
+reports per-search failures separately. Searching may use Apify resources and
+incur charges according to your Apify account and actor.
+
+## API routes
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/api/dashboard/login` | `POST` | Verify the shared dashboard password and create a session. |
+| `/api/dashboard/logout` | `POST` | Clear the dashboard session. |
+| `/api/candidate-profile` | `GET`, `POST`, `PUT` | Read or save the candidate profile (dashboard session required). |
+| `/api/jobs/search` | `POST` | Search LinkedIn using Apify and optionally persist results. Requires a dashboard session or `x-api-key` matching `INTERNAL_API_KEY`. |
+| `/api/jobs` | `GET` | Return saved jobs and job activity counts. Requires a dashboard session or `INTERNAL_API_KEY`. |
+| `/api/jobs/import` | `POST` | Import jobs. Requires a dashboard session or `INTERNAL_API_KEY`. |
+| `/api/agent` | `POST` | Career-agent endpoint foundation. Requires a dashboard session or `INTERNAL_API_KEY`; orchestration is still a stub. |
+| `/api/health` | `GET` | Health check. |
+
+Example search request body:
+
+```json
+{
+  "searches": [
+    {
+      "keywords": "Product Designer",
+      "location": "Bengaluru",
+      "datePosted": "pastWeek"
+    },
+    {
+      "keywords": "UX Designer",
+      "location": "Remote",
+      "datePosted": "past24Hours"
+    }
+  ],
+  "maxItemsPerSearch": 10,
+  "save": true
+}
+```
+
+The dashboard sends its session cookie automatically. For trusted
+server-to-server requests, send `x-api-key` with the configured
+`INTERNAL_API_KEY`; do not put that key in browser code.
 
 ## Project structure
 
 ```text
 app/
   api/
-    agent/
+    candidate-profile/
+    dashboard/
     health/
+    jobs/
   dashboard/
+  login/
+  profile/
   page.tsx
 
 lib/
   agent/
-    career-agent.ts
-    job-discovery.ts
-    job-matching.ts
-    job-ranking.ts
+  auth/
   db/
-    prisma.ts
+  job-sources/
+  jobs/
   validation/
 
 prisma/
+  migrations/
   schema.prisma
 ```
 
-## Development roadmap
+## Security and product notes
 
-### V1.1
-Candidate profile + database seed
+Dashboard access currently uses one shared password, not individual user
+accounts. Login throttling is in-memory and intended for a single app instance;
+use a shared rate limiter and proper identity provider before running multiple
+instances or opening access to many users. Keep the app and its secrets private.
 
-### V1.2
-Apify job ingestion
-
-### V1.3
-Job normalization + deduplication
-
-### V1.4
-Deterministic matching engine
-
-### V1.5
-LLM semantic matching
-
-### V1.6
-Dashboard + filtering + ranking
-
-### V1.7
-Daily agent run + notifications
-
-## Important automation principle
-
-LinkedIn/Naukri account actions should only be automated where permitted by the relevant platform's current terms and available APIs/interfaces. The project is designed around job intelligence first and human approval for consequential application actions.
-# ai-careerly
+LinkedIn/Naukri account actions should only be automated where permitted by the
+relevant platform's current terms and available APIs/interfaces. The project
+focuses on job discovery first and human approval for consequential application
+actions.
