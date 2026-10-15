@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { hasDashboardSession } from "@/lib/auth/dashboard";
 import { prisma } from "@/lib/db/prisma";
+import DashboardSidebar from "@/components/dashboard-sidebar";
 import SearchPanel from "./search-panel";
 
 type IconName =
@@ -10,7 +11,6 @@ type IconName =
   | "bookmark"
   | "chart"
   | "user"
-  | "settings"
   | "spark"
   | "check"
   | "arrow"
@@ -52,12 +52,6 @@ function Icon({
         <path d="M5 21a7 7 0 0 1 14 0" />
       </>
     ),
-    settings: (
-      <>
-        <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
-        <path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3 .9v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3-.9l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1a1.8 1.8 0 0 0-.9-3h-.2a1.8 1.8 0 0 1 0-3.6h.2a1.8 1.8 0 0 0 .9-3l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 3-.9v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3 .9l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 .9 3h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0-.9 3Z" />
-      </>
-    ),
     spark: (
       <path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9L12 2Zm7 12 .9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14Z" />
     ),
@@ -97,28 +91,66 @@ function Icon({
   );
 }
 
-const navigation: { label: string; icon: IconName; href: string }[] = [
-  { label: "Overview", icon: "home", href: "/" },
-  { label: "Job matches", icon: "briefcase", href: "/dashboard" },
-  { label: "Shortlist", icon: "bookmark", href: "/dashboard#shortlist" },
-  { label: "Applications", icon: "file", href: "/dashboard#applications" },
-  { label: "Insights", icon: "chart", href: "/dashboard#insights" },
-];
-
-const setupSteps = [
-  { label: "Connect job sources", state: "Next up" },
-  { label: "Complete your profile", state: "Locked" },
-  { label: "Find your best matches", state: "Locked" },
-  { label: "Review application settings", state: "Locked" },
-];
-
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   if (!(await hasDashboardSession())) redirect("/login");
+  const { view } = await searchParams;
+  const initialView =
+    view === "shortlisted" || view === "applied" || view === "insights"
+      ? view
+      : "all";
 
-  const [jobs, totalJobs, shortlisted, applications] = await Promise.all([
+  const profile = await prisma.candidateProfile.findFirst({
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+  const [
+    scoredMatches,
+    unscoredJobs,
+    totalJobs,
+    matchCounts,
+    scoredJobs,
+    highMatches,
+  ] = await Promise.all([
+    profile
+      ? prisma.jobMatch.findMany({
+          where: { candidateProfileId: profile.id },
+          orderBy: [{ matchScore: "desc" }, { updatedAt: "desc" }],
+          take: 100,
+          select: {
+            matchScore: true,
+            skillScore: true,
+            experienceScore: true,
+            salaryScore: true,
+            locationScore: true,
+            titleScore: true,
+            recommendation: true,
+            aiReasoning: true,
+            status: true,
+            job: {
+              select: {
+                id: true,
+                title: true,
+                company: true,
+                location: true,
+                url: true,
+                source: true,
+                salaryText: true,
+                postedAt: true,
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
     prisma.job.findMany({
+      where: profile
+        ? { matches: { none: { candidateProfileId: profile.id } } }
+        : undefined,
       orderBy: { fetchedAt: "desc" },
-      take: 100,
+      take: profile ? 25 : 100,
       select: {
         id: true,
         title: true,
@@ -131,9 +163,36 @@ export default async function DashboardPage() {
       },
     }),
     prisma.job.count(),
-    prisma.jobMatch.count({ where: { status: "SHORTLISTED" } }),
-    prisma.jobMatch.count({ where: { status: "APPLIED" } }),
+    profile
+      ? prisma.jobMatch.groupBy({
+          by: ["status"],
+          where: { candidateProfileId: profile.id },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
+    profile
+      ? prisma.jobMatch.count({
+          where: { candidateProfileId: profile.id },
+        })
+      : Promise.resolve(0),
+    profile
+      ? prisma.jobMatch.count({
+          where: {
+            candidateProfileId: profile.id,
+            recommendation: "HIGH",
+          },
+        })
+      : Promise.resolve(0),
   ]);
+  const shortlisted =
+    matchCounts.find((match) => match.status === "SHORTLISTED")?._count._all ??
+    0;
+  const applications =
+    matchCounts.find((match) => match.status === "APPLIED")?._count._all ?? 0;
+  const profileReadyPercent =
+    profile && totalJobs > 0
+      ? Math.min(100, Math.round((scoredJobs / totalJobs) * 100))
+      : 0;
 
   const metrics = [
     {
@@ -142,6 +201,13 @@ export default async function DashboardPage() {
       note: "Opportunities saved to your workspace",
       icon: "briefcase" as const,
       tone: "violet",
+    },
+    {
+      label: "Strong matches",
+      value: highMatches.toLocaleString(),
+      note: "Scored against your profile",
+      icon: "spark" as const,
+      tone: "blue",
     },
     {
       label: "Shortlisted",
@@ -159,66 +225,32 @@ export default async function DashboardPage() {
     },
   ];
 
-  const dashboardJobs = jobs.map((job) => ({
-    ...job,
-    postedAt: job.postedAt?.toISOString() ?? null,
-  }));
+  const dashboardJobs = [
+    ...scoredMatches.map(({ job, ...match }) => ({
+      ...job,
+      postedAt: job.postedAt?.toISOString() ?? null,
+      match,
+    })),
+    ...unscoredJobs.map((job) => ({
+      ...job,
+      postedAt: job.postedAt?.toISOString() ?? null,
+      match: null,
+    })),
+  ];
 
   return (
     <main className="dashboard-shell">
-      <aside className="sidebar" aria-label="Main navigation">
-        <Link className="brand-mark" href="/" aria-label="Careerly home">
-          <span>N</span>
-        </Link>
-
-        <nav className="sidebar-nav">
-          {navigation.map((item) => {
-            const active = item.label === "Job matches";
-            return (
-              <Link
-                aria-current={active ? "page" : undefined}
-                aria-label={item.label}
-                className={`sidebar-link${active ? " sidebar-link-active" : ""}`}
-                href={item.href}
-                key={item.label}
-                title={item.label}
-              >
-                <Icon name={item.icon} />
-                <span className="sidebar-tooltip">{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="sidebar-bottom">
-          <Link
-            aria-label="Your profile"
-            className="sidebar-link"
-            href="/profile"
-            title="Your profile"
-          >
-            <Icon name="user" />
-            <span className="sidebar-tooltip">Your profile</span>
-          </Link>
-          <Link
-            aria-label="Settings"
-            className="sidebar-link"
-            href="/#settings"
-            title="Settings"
-          >
-            <Icon name="settings" />
-            <span className="sidebar-tooltip">Settings</span>
-          </Link>
-          <div className="avatar" aria-label="Profile placeholder">
-            Y
-          </div>
-          <form action="/api/dashboard/logout" method="post">
-            <button className="dashboard-mobile-signout" type="submit">
-              Sign out
-            </button>
-          </form>
-        </div>
-      </aside>
+      <DashboardSidebar
+        activePage={
+          initialView === "shortlisted"
+            ? "shortlist"
+            : initialView === "applied"
+              ? "applications"
+              : initialView === "insights"
+                ? "insights"
+                : "jobs"
+        }
+      />
 
       <div className="dashboard-content">
         <header className="topbar">
@@ -241,14 +273,17 @@ export default async function DashboardPage() {
           <section className="welcome-row" id="overview">
             <div>
               <p className="eyebrow">YOUR CAREER, IN MOTION</p>
-              <h1>Job discovery</h1>
+              <h1>Job matches</h1>
               <p className="welcome-copy">
-                A little closer to the role that feels like you.
+                See how each role fits your skills, experience, and preferences.
               </p>
             </div>
-            <Link className="button button-primary" href="/#milestone">
-              <Icon className="h-4 w-4" name="spark" />
-              Set up your agent
+            <Link
+              className="button button-primary dashboard-profile-action"
+              href="/profile"
+            >
+              <Icon className="h-4 w-4" name="user" />
+              Edit profile
               <Icon className="h-4 w-4" name="arrow" />
             </Link>
           </section>
@@ -276,45 +311,71 @@ export default async function DashboardPage() {
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">YOUR NEXT MOVE</p>
-                  <h2 id="matches-title">Latest jobs</h2>
+                  <h2 id="matches-title">Scored job results</h2>
                 </div>
-                <span className="pill pill-neutral">
-                  <Icon className="h-3.5 w-3.5" name="search" />
-                  LinkedIn results
+                <span
+                  className={`profile-rank-badge${profile ? "" : " profile-rank-badge-pending"}`}
+                  title={profile ? "Scores are based on your saved candidate profile" : "Add a candidate profile to score jobs"}
+                >
+                  <Icon
+                    className="profile-rank-badge-icon"
+                    name={profile ? "check" : "user"}
+                  />
+                  <span>{profile ? "Ranked for you" : "Add profile"}</span>
                 </span>
               </div>
 
-              <SearchPanel jobs={dashboardJobs} />
+              <SearchPanel
+                hasProfile={Boolean(profile)}
+                initialFilter={
+                  initialView === "insights" ? "all" : initialView
+                }
+                key={initialView}
+                jobs={dashboardJobs}
+              />
             </section>
 
-            <aside className="panel setup-panel" aria-labelledby="setup-title">
+            <aside
+              className="panel setup-panel"
+              aria-labelledby="setup-title"
+              id="insights"
+            >
               <div className="setup-heading">
                 <div>
                   <p className="eyebrow">YOUR AI ASSISTANT</p>
-                  <h2 id="setup-title">Agent setup</h2>
+                  <h2 id="setup-title">Matching overview</h2>
                 </div>
-                <span className="pill pill-pending">
-                  <span className="status-dot status-dot-muted" />
-                  Not started
+                <span className={profile ? "pill pill-neutral" : "pill pill-pending"}>
+                  <span className={`status-dot${profile ? "" : " status-dot-muted"}`} />
+                  {profile ? `${scoredJobs} scored` : "Profile required"}
                 </span>
               </div>
 
               <div className="progress-summary">
                 <div
-                  aria-label="0 percent complete"
+                  aria-label={`${profileReadyPercent} percent of saved jobs scored`}
                   className="progress-ring"
                   role="img"
+                  style={{
+                    background: `conic-gradient(#7263f0 ${profileReadyPercent * 3.6}deg, #eae9fa 0deg)`,
+                  }}
                 >
                   <div className="progress-ring-inner">
                     <Icon className="h-7 w-7" name="spark" />
-                    <strong>0%</strong>
-                    <span>ready</span>
+                    <strong>{profileReadyPercent}%</strong>
+                    <span>scored</span>
                   </div>
                 </div>
                 <div className="progress-copy">
-                  <strong>Let’s get you started</strong>
+                  <strong>
+                    {profile
+                      ? `${highMatches} strong ${highMatches === 1 ? "match" : "matches"}`
+                      : "Add your candidate profile"}
+                  </strong>
                   <span>
-                    Complete a few quick steps to unlock personalized matches.
+                    {profile
+                      ? `${scoredJobs} of ${totalJobs} saved jobs scored against your profile.`
+                      : "Job-fit scores use your skills, experience, and preferences."}
                   </span>
                 </div>
               </div>
@@ -322,12 +383,35 @@ export default async function DashboardPage() {
               <div className="setup-divider" />
 
               <ol className="setup-list">
-                {setupSteps.map((step, index) => (
+                {[
+                  {
+                    label: "Candidate profile",
+                    state: profile ? "Ready" : "Set up next",
+                    complete: Boolean(profile),
+                  },
+                  {
+                    label: "Saved jobs scored",
+                    state: `${scoredJobs}/${totalJobs}`,
+                    complete: totalJobs > 0 && scoredJobs === totalJobs,
+                  },
+                  {
+                    label: "Strong matches",
+                    state: highMatches.toLocaleString(),
+                    complete: highMatches > 0,
+                  },
+                  {
+                    label: "Shortlist and applications",
+                    state: `${shortlisted} / ${applications}`,
+                    complete: shortlisted + applications > 0,
+                  },
+                ].map((step, index) => (
                   <li className="setup-step" key={step.label}>
                     <span
-                      className={`step-icon${index === 0 ? " step-icon-next" : ""}`}
+                      className={`step-icon${index === 0 && !profile ? " step-icon-next" : ""}`}
                     >
-                      {index === 0 ? (
+                      {step.complete ? (
+                        <Icon className="h-3.5 w-3.5" name="check" />
+                      ) : index === 0 && !profile ? (
                         <Icon className="h-3.5 w-3.5" name="arrow" />
                       ) : (
                         <span>{index + 1}</span>
@@ -335,7 +419,7 @@ export default async function DashboardPage() {
                     </span>
                     <span className="step-label">{step.label}</span>
                     <span
-                      className={`step-state${index === 0 ? " step-state-next" : ""}`}
+                      className={`step-state${index === 0 && !profile ? " step-state-next" : ""}`}
                     >
                       {step.state}
                     </span>
@@ -350,14 +434,15 @@ export default async function DashboardPage() {
                 <div>
                   <strong>Your profile stays yours</strong>
                   <p>
-                    You’ll review and approve your preferences before anything
-                    is submitted.
+                    Match scores are guidance for your search. You stay in
+                    control of which roles to pursue.
                   </p>
                 </div>
               </div>
 
-              <Link className="setup-link" href="/#milestone">
-                Continue setup <Icon className="h-4 w-4" name="arrow" />
+              <Link className="setup-link" href={profile ? "#jobs" : "/profile"}>
+                {profile ? "Review job scores" : "Create your profile"}{" "}
+                <Icon className="h-4 w-4" name="arrow" />
               </Link>
             </aside>
           </div>

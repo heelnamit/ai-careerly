@@ -1,61 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { hasDashboardSession } from "@/lib/auth/dashboard";
+import DashboardSidebar from "@/components/dashboard-sidebar";
 import ProfileForm from "./profile-form";
-
-const navigation = [
-  { label: "Overview", href: "/" },
-  { label: "Job matches", href: "/dashboard" },
-];
 
 export default async function ProfilePage() {
   if (!(await hasDashboardSession())) redirect("/login");
 
   return (
     <main className="dashboard-shell">
-      <aside className="sidebar" aria-label="Main navigation">
-        <Link className="brand-mark" href="/" aria-label="Careerly home">
-          <span>N</span>
-        </Link>
-        <nav className="sidebar-nav">
-          {navigation.map((item) => (
-            <Link
-              aria-label={item.label}
-              className="sidebar-link"
-              href={item.href}
-              key={item.label}
-              title={item.label}
-            >
-              <span aria-hidden="true" className="profile-nav-glyph">
-                {item.label === "Overview" ? "⌂" : "▣"}
-              </span>
-              <span className="sidebar-tooltip">{item.label}</span>
-            </Link>
-          ))}
-          <Link
-            aria-current="page"
-            aria-label="Your profile"
-            className="sidebar-link sidebar-link-active"
-            href="/profile"
-            title="Your profile"
-          >
-            <svg
-              aria-hidden="true"
-              className="h-5 w-5"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="8" r="4" />
-              <path d="M5 21a7 7 0 0 1 14 0" />
-            </svg>
-            <span className="sidebar-tooltip">Your profile</span>
-          </Link>
-        </nav>
-      </aside>
+      <DashboardSidebar activePage="profile" />
 
       <div className="dashboard-content">
         <header className="topbar">
@@ -68,9 +22,11 @@ export default async function ProfilePage() {
               <span className="status-dot" />
               Your workspace
             </span>
-            <span className="avatar avatar-small" aria-hidden="true">
-              Y
-            </span>
+            <form action="/api/dashboard/logout" method="post">
+              <button className="dashboard-signout" type="submit">
+                Sign out
+              </button>
+            </form>
           </div>
         </header>
 

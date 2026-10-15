@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { jobImportSchema } from "@/lib/validation/job";
 import { isDashboardRequestAuthorized } from "@/lib/auth/dashboard";
+import { scoreSavedJobs } from "@/lib/agent/score-saved-jobs";
 
 export async function POST(request: Request) {
   if (!isDashboardRequestAuthorized(request)) {
@@ -57,12 +58,16 @@ export async function POST(request: Request) {
       }
     }
 
+    const scoring = await scoreSavedJobs();
+
     return NextResponse.json({
       success: true,
       summary: {
         received: parsed.data.length,
         created,
         updated,
+        scored: scoring.scored,
+        profileConfigured: scoring.profileId !== null,
       },
     });
   } catch (error) {

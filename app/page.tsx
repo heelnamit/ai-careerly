@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { hasDashboardSession } from "@/lib/auth/dashboard";
 import { prisma } from "@/lib/db/prisma";
+import DashboardSidebar from "@/components/dashboard-sidebar";
 
 type NavigationIcon = "home" | "briefcase" | "bookmark" | "file" | "chart";
 
@@ -52,37 +53,48 @@ function NavigationGlyph({ name }: { name: NavigationIcon }) {
   );
 }
 
-const navigation: { label: string; icon: NavigationIcon; href: string }[] = [
-  { label: "Overview", icon: "home", href: "/" },
-  { label: "Job matches", icon: "briefcase", href: "/dashboard" },
-  { label: "Shortlist", icon: "bookmark", href: "/dashboard#shortlist" },
-  { label: "Applications", icon: "file", href: "/dashboard#applications" },
-  { label: "Insights", icon: "chart", href: "/dashboard#insights" },
-];
-
 export default async function Home() {
   if (!(await hasDashboardSession())) redirect("/login");
 
-  const [profile, jobsFound, matchCount, shortlisted, applications] =
+  const profile = await prisma.candidateProfile.findFirst({
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      headline: true,
+      yearsExperience: true,
+      currentRole: true,
+      primarySkills: true,
+      secondarySkills: true,
+      targetRoles: true,
+      preferredLocations: true,
+      companyPreferences: true,
+    },
+  });
+  const [jobsFound, matchCount, shortlisted, applications] =
     await Promise.all([
-      prisma.candidateProfile.findFirst({
-        orderBy: { updatedAt: "desc" },
-        select: {
-          name: true,
-          headline: true,
-          yearsExperience: true,
-          currentRole: true,
-          primarySkills: true,
-          secondarySkills: true,
-          targetRoles: true,
-          preferredLocations: true,
-          companyPreferences: true,
-        },
-      }),
       prisma.job.count(),
-      prisma.jobMatch.count(),
-      prisma.jobMatch.count({ where: { status: "SHORTLISTED" } }),
-      prisma.jobMatch.count({ where: { status: "APPLIED" } }),
+      profile
+        ? prisma.jobMatch.count({
+            where: { candidateProfileId: profile.id },
+          })
+        : Promise.resolve(0),
+      profile
+        ? prisma.jobMatch.count({
+            where: {
+              candidateProfileId: profile.id,
+              status: "SHORTLISTED",
+            },
+          })
+        : Promise.resolve(0),
+      profile
+        ? prisma.jobMatch.count({
+            where: {
+              candidateProfileId: profile.id,
+              status: "APPLIED",
+            },
+          })
+        : Promise.resolve(0),
     ]);
 
   const hasJobSource =
@@ -97,9 +109,9 @@ export default async function Home() {
       tone: "violet",
     },
     {
-      label: "Personalized matches",
+      label: "Jobs scored",
       value: matchCount.toLocaleString(),
-      note: "Linked to your candidate profile",
+      note: "Scored against your candidate profile",
       icon: "briefcase" as const,
       tone: "mint",
     },
@@ -156,63 +168,7 @@ export default async function Home() {
 
   return (
     <main className="dashboard-shell">
-      <aside className="sidebar" aria-label="Main navigation">
-        <Link className="brand-mark" href="/" aria-label="Careerly home">
-          <span>N</span>
-        </Link>
-
-        <nav className="sidebar-nav">
-          {navigation.map((item) => {
-            const active = item.label === "Overview";
-            return (
-              <Link
-                aria-current={active ? "page" : undefined}
-                aria-label={item.label}
-                className={`sidebar-link${active ? " sidebar-link-active" : ""}`}
-                href={item.href}
-                key={item.label}
-                title={item.label}
-              >
-                <NavigationGlyph name={item.icon} />
-                <span className="sidebar-tooltip">{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="sidebar-bottom">
-          <Link
-            aria-label="Your profile"
-            className="sidebar-link"
-            href="/profile"
-            title="Your profile"
-          >
-            <span aria-hidden="true" className="home-sidebar-user">
-              Y
-            </span>
-            <span className="sidebar-tooltip">Your profile</span>
-          </Link>
-          <Link
-            aria-label="Settings"
-            className="sidebar-link"
-            href="/#settings"
-            title="Settings"
-          >
-            <span aria-hidden="true" className="home-sidebar-settings">
-              ⚙
-            </span>
-            <span className="sidebar-tooltip">Settings</span>
-          </Link>
-          <div className="avatar" aria-label="Profile placeholder">
-            {profile?.name?.charAt(0).toUpperCase() ?? "Y"}
-          </div>
-          <form action="/api/dashboard/logout" method="post">
-            <button className="dashboard-mobile-signout" type="submit">
-              Sign out
-            </button>
-          </form>
-        </div>
-      </aside>
+      <DashboardSidebar activePage="overview" />
 
       <div className="dashboard-content">
         <header className="topbar">

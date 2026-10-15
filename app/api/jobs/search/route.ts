@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { jobSearchRequestSchema } from "@/lib/validation/search";
 import { fetchLinkedInJobs } from "@/lib/job-sources/linkedin-apify";
 import { upsertJobs } from "@/lib/jobs/upsert-jobs";
+import { scoreSavedJobs } from "@/lib/agent/score-saved-jobs";
 import { isDashboardRequestAuthorized } from "@/lib/auth/dashboard";
 
 export const maxDuration = 300; // Apify runs can take a while
@@ -35,10 +36,30 @@ export async function POST(request: Request) {
     const results = await fetchLinkedInJobs(searches, maxItemsPerSearch);
     const allJobs = results.flatMap((r) => r.jobs);
     const saved = save ? await upsertJobs(allJobs) : null;
+    let scoring:
+      | Awaited<ReturnType<typeof scoreSavedJobs>>
+      | null = null;
+    let scoringError: string | null = null;
+    if (save) {
+      try {
+        scoring = await scoreSavedJobs();
+      } catch (error) {
+        console.error("Job scoring after LinkedIn search failed:", error);
+        scoringError = "Jobs were saved, but matching scores could not be updated.";
+      }
+    }
 
     return NextResponse.json({
       success: true,
-      summary: { searches: searches.length, found: allJobs.length, saved },
+      summary: {
+        searches: searches.length,
+        found: allJobs.length,
+        saved,
+        scored: scoring?.scored ?? null,
+        rejected: scoring?.rejected ?? null,
+        profileConfigured: scoring !== null && scoring.profileId !== null,
+        scoringError,
+      },
       results: results.map((r) => ({
         keywords: r.search.keywords,
         location: r.search.location,
