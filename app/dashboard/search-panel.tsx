@@ -52,6 +52,8 @@ type ScoreFilter =
   | "shortlisted"
   | "applied";
 
+type TrackedStatus = "NEW" | "SHORTLISTED" | "SKIPPED" | "APPLIED";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -59,7 +61,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function getErrorMessage(payload: unknown) {
   return isRecord(payload) && typeof payload.error === "string"
     ? payload.error
-    : "Job search failed. Please try again.";
+    : "The request failed. Please try again.";
 }
 
 function formatDate(value: string | null) {
@@ -124,6 +126,8 @@ export default function SearchPanel({
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>(initialFilter);
   const [scoring, setScoring] = useState(false);
   const [scoreNotice, setScoreNotice] = useState<string | null>(null);
+  const [updatingJobId, setUpdatingJobId] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   function updateSearch(id: number, field: keyof JobSearch, value: string) {
     setSearches((current) =>
@@ -262,6 +266,47 @@ export default function SearchPanel({
       );
     } finally {
       setScoring(false);
+    }
+  }
+
+  async function updateJobStatus(
+    job: DashboardJob,
+    requestedStatus: TrackedStatus,
+  ) {
+    if (!hasProfile || updatingJobId) return;
+
+    const nextStatus =
+      job.match?.status === requestedStatus ? "NEW" : requestedStatus;
+    setUpdatingJobId(job.id);
+    setStatusError(null);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/jobs/${encodeURIComponent(job.id)}/status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: nextStatus }),
+        },
+      );
+      const payload: unknown = await response.json();
+      if (!response.ok) throw new Error(getErrorMessage(payload));
+      if (
+        !isRecord(payload) ||
+        !isRecord(payload.data) ||
+        payload.data.status !== nextStatus
+      ) {
+        throw new Error("The job status response was invalid.");
+      }
+      router.refresh();
+    } catch (updateError) {
+      setStatusError(
+        updateError instanceof Error
+          ? updateError.message
+          : "Could not update the job status.",
+      );
+    } finally {
+      setUpdatingJobId(null);
     }
   }
 
@@ -417,8 +462,20 @@ export default function SearchPanel({
 
       <div className="job-results-heading">
         <div>
-          <p className="eyebrow">RANKED AGAINST YOUR PROFILE</p>
-          <h3>Job matches</h3>
+          <p className="eyebrow">
+            {initialFilter === "shortlisted"
+              ? "ROLES YOU SAVED"
+              : initialFilter === "applied"
+                ? "APPLICATION TRACKER"
+                : "RANKED AGAINST YOUR PROFILE"}
+          </p>
+          <h3>
+            {initialFilter === "shortlisted"
+              ? "Your shortlist"
+              : initialFilter === "applied"
+                ? "Applied jobs"
+                : "Job matches"}
+          </h3>
         </div>
         <div className="job-results-heading-actions">
           <button
@@ -439,13 +496,18 @@ export default function SearchPanel({
         </p>
       )}
       {scoreNotice && <p className="job-search-feedback" role="status">{scoreNotice}</p>}
+      {statusError && (
+        <p className="profile-feedback profile-feedback-error" role="alert">
+          {statusError}
+        </p>
+      )}
       {!hasProfile && jobs.length > 0 && (
         <p className="match-profile-prompt">
           Scores use your saved candidate profile.{" "}
           <a href="/profile">Create or complete your profile</a> to rank these jobs.
         </p>
       )}
-      {jobs.length > 0 && (
+      {jobs.length > 0 && initialFilter === "all" && (
         <div aria-label="Filter job matches by score" className="job-score-filters">
           {([
             ["all", `All (${jobs.length})`],
@@ -455,7 +517,7 @@ export default function SearchPanel({
             ["shortlisted", `Shortlist (${jobs.filter((job) => job.match?.status === "SHORTLISTED").length})`],
             ["applied", `Applied (${jobs.filter((job) => job.match?.status === "APPLIED").length})`],
             ["unscored", `Unscored (${jobs.filter((job) => !job.match).length})`],
-            ["excluded", `Excluded (${jobs.filter((job) => job.match?.status === "SKIPPED").length})`],
+            ["excluded", `Skipped (${jobs.filter((job) => job.match?.status === "SKIPPED").length})`],
           ] as [ScoreFilter, string][]).map(([filter, label]) => (
             <button
               aria-pressed={scoreFilter === filter}
@@ -477,6 +539,11 @@ export default function SearchPanel({
               ? scoreTier(job.match.matchScore)
               : null;
             const excluded = job.match?.status === "SKIPPED";
+            const profileExcluded =
+              excluded &&
+              job.match?.aiReasoning?.startsWith(
+                "Title contains excluded keyword",
+              );
             return (
               <article className="job-result-card" key={job.id}>
                 <div className="job-result-top">
@@ -491,7 +558,7 @@ export default function SearchPanel({
                   </div>
                   <div className={`job-match-score${tier ? ` job-match-score-${tier}` : ""}${excluded ? " job-match-score-excluded" : ""}`}>
                     <strong>{job.match ? `${Math.round(job.match.matchScore)}` : "—"}</strong>
-                    <span>{excluded ? "Excluded" : tier ? tierLabel(tier) : "Unscored"}</span>
+                    <span>{excluded ? (profileExcluded ? "Profile excluded" : "Skipped") : tier ? tierLabel(tier) : "Unscored"}</span>
                   </div>
                 </div>
                 {job.match && (
@@ -514,18 +581,63 @@ export default function SearchPanel({
                 <div className="job-result-footer">
                   {excluded && (
                     <span className="job-exclusion-note">
-                      Excluded by profile settings
+                      {profileExcluded
+                        ? "Excluded by your profile settings"
+                        : "You skipped this job"}
                     </span>
                   )}
-                  <a
-                    aria-label={`View ${job.title} at ${job.company}`}
-                    className="button button-secondary job-view-link"
-                    href={job.url}
-                    rel="noopener noreferrer"
-                    target="_blank"
-                  >
-                    View job <span aria-hidden="true">↗</span>
-                  </a>
+                  <div className="job-card-actions">
+                    <div
+                      aria-label={`Update status for ${job.title}`}
+                      className="job-status-actions"
+                      role="group"
+                    >
+                      <button
+                        aria-pressed={job.match?.status === "SHORTLISTED"}
+                        className={`job-status-button${job.match?.status === "SHORTLISTED" ? " job-status-button-active" : ""}`}
+                        disabled={!hasProfile || updatingJobId !== null}
+                        onClick={() => updateJobStatus(job, "SHORTLISTED")}
+                        title={!hasProfile ? "Create a candidate profile to track this job" : undefined}
+                        type="button"
+                      >
+                        {job.match?.status === "SHORTLISTED" ? "Shortlisted" : "Shortlist"}
+                      </button>
+                      <button
+                        aria-pressed={job.match?.status === "SKIPPED"}
+                        className={`job-status-button${job.match?.status === "SKIPPED" ? " job-status-button-skipped" : ""}`}
+                        disabled={!hasProfile || updatingJobId !== null}
+                        onClick={() => updateJobStatus(job, "SKIPPED")}
+                        title={!hasProfile ? "Create a candidate profile to track this job" : undefined}
+                        type="button"
+                      >
+                        {job.match?.status === "SKIPPED" ? "Skipped" : "Skip"}
+                      </button>
+                      <button
+                        aria-pressed={job.match?.status === "APPLIED"}
+                        className={`job-status-button${job.match?.status === "APPLIED" ? " job-status-button-applied" : ""}`}
+                        disabled={!hasProfile || updatingJobId !== null}
+                        onClick={() => updateJobStatus(job, "APPLIED")}
+                        title={!hasProfile ? "Create a candidate profile to track this job" : undefined}
+                        type="button"
+                      >
+                        Applied
+                      </button>
+                      {updatingJobId === job.id && (
+                        <span className="job-status-saving" role="status">
+                          Saving…
+                        </span>
+                      )}
+                    </div>
+                    <a
+                      aria-label={`View ${job.title} at ${job.company}`}
+                      className="button button-secondary job-view-link"
+                      href={job.url}
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
+                      View job <span aria-hidden="true">↗</span>
+                    </a>
+                  </div>
                 </div>
               </article>
             );
@@ -545,11 +657,23 @@ export default function SearchPanel({
             <span className="empty-art-spark empty-art-spark-one">✦</span>
             <span className="empty-art-spark empty-art-spark-two">✧</span>
           </div>
-          <h3>{jobs.length ? "No jobs in this score range" : "Your next great role is out there"}</h3>
+          <h3>
+            {initialFilter === "shortlisted"
+              ? "No shortlisted jobs yet"
+              : initialFilter === "applied"
+                ? "No applications tracked yet"
+                : jobs.length
+                  ? "No jobs in this score range"
+                  : "Your next great role is out there"}
+          </h3>
           <p>
-            {jobs.length
-              ? "Choose another score filter to see more saved jobs."
-              : "Run a LinkedIn search above to bring new opportunities into your dashboard."}
+            {initialFilter === "shortlisted"
+              ? "Shortlist a role from your job matches and it will appear here."
+              : initialFilter === "applied"
+                ? "Mark a role as applied and it will appear here for tracking."
+                : jobs.length
+                  ? "Choose another score filter to see more saved jobs."
+                  : "Run a LinkedIn search above to bring new opportunities into your dashboard."}
           </p>
         </div>
       )}

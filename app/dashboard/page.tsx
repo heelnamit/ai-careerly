@@ -117,9 +117,19 @@ export default async function DashboardPage({
   ] = await Promise.all([
     profile
       ? prisma.jobMatch.findMany({
-          where: { candidateProfileId: profile.id },
+          where: {
+            candidateProfileId: profile.id,
+            ...(initialView === "shortlisted"
+              ? { status: "SHORTLISTED" as const }
+              : initialView === "applied"
+                ? { status: "APPLIED" as const }
+                : {}),
+          },
           orderBy: [{ matchScore: "desc" }, { updatedAt: "desc" }],
-          take: 100,
+          take:
+            initialView === "shortlisted" || initialView === "applied"
+              ? undefined
+              : 100,
           select: {
             matchScore: true,
             skillScore: true,
@@ -145,23 +155,25 @@ export default async function DashboardPage({
           },
         })
       : Promise.resolve([]),
-    prisma.job.findMany({
-      where: profile
-        ? { matches: { none: { candidateProfileId: profile.id } } }
-        : undefined,
-      orderBy: { fetchedAt: "desc" },
-      take: profile ? 25 : 100,
-      select: {
-        id: true,
-        title: true,
-        company: true,
-        location: true,
-        url: true,
-        source: true,
-        salaryText: true,
-        postedAt: true,
-      },
-    }),
+    initialView === "shortlisted" || initialView === "applied"
+      ? Promise.resolve([])
+      : prisma.job.findMany({
+          where: profile
+            ? { matches: { none: { candidateProfileId: profile.id } } }
+            : undefined,
+          orderBy: { fetchedAt: "desc" },
+          take: profile ? 25 : 100,
+          select: {
+            id: true,
+            title: true,
+            company: true,
+            location: true,
+            url: true,
+            source: true,
+            salaryText: true,
+            postedAt: true,
+          },
+        }),
     prisma.job.count(),
     profile
       ? prisma.jobMatch.groupBy({

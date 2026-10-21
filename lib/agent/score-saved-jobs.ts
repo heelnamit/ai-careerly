@@ -35,7 +35,7 @@ export async function scoreSavedJobs() {
         const status =
           existingStatus === "SHORTLISTED" || existingStatus === "APPLIED"
             ? existingStatus
-            : result.rejected
+            : existingStatus === "SKIPPED" || result.rejected
               ? "SKIPPED"
               : "NEW";
         const fields = toMatchFields(result);
