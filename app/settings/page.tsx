@@ -13,19 +13,8 @@ export default async function SettingsPage() {
       <div className="dashboard-content">
         <header className="topbar">
           <div className="topbar-brand">
-            <span className="brand-mark brand-mark-small">N</span>
+            <span className="brand-mark brand-mark-small">C</span>
             <span>Careerly</span>
-          </div>
-          <div className="topbar-right">
-            <span className="topbar-status">
-              <span className="status-dot" />
-              Your workspace
-            </span>
-            <form action="/api/dashboard/logout" method="post">
-              <button className="dashboard-signout" type="submit">
-                Sign out
-              </button>
-            </form>
           </div>
         </header>
 

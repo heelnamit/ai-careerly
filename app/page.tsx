@@ -173,22 +173,8 @@ export default async function Home() {
       <div className="dashboard-content">
         <header className="topbar">
           <div className="topbar-brand">
-            <span className="brand-mark brand-mark-small">N</span>
+            <span className="brand-mark brand-mark-small">C</span>
             <span>Careerly</span>
-          </div>
-          <div className="topbar-right">
-            <span className="topbar-status">
-              <span className="status-dot" />
-              Your workspace
-            </span>
-            {profile?.name && (
-              <span className="overview-user-name">{profile.name}</span>
-            )}
-            <form action="/api/dashboard/logout" method="post">
-              <button className="dashboard-signout" type="submit">
-                Sign out
-              </button>
-            </form>
           </div>
         </header>
 

@@ -16,7 +16,8 @@ type IconName =
   | "file"
   | "chart"
   | "user"
-  | "settings";
+  | "settings"
+  | "logout";
 
 const mainLinks: {
   label: string;
@@ -93,6 +94,13 @@ function SidebarIcon({
         <path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3 .9v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3-.9l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1a1.8 1.8 0 0 0-.9-3h-.2a1.8 1.8 0 0 1 0-3.6h.2a1.8 1.8 0 0 0 .9-3l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 3-.9v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3 .9l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 .9 3h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0-.9 3Z" />
       </>
     ),
+    logout: (
+      <>
+        <path d="M10 17l5-5-5-5" />
+        <path d="M15 12H3" />
+        <path d="M12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6" />
+      </>
+    ),
   };
 
   return (
@@ -119,7 +127,7 @@ export default function DashboardSidebar({
   return (
     <aside className="sidebar" aria-label="Main navigation">
       <Link className="brand-mark sidebar-brand" href="/" aria-label="Careerly overview">
-        <span>N</span>
+        <span>C</span>
       </Link>
 
       <nav aria-label="Workspace" className="sidebar-nav">
@@ -159,12 +167,15 @@ export default function DashboardSidebar({
           <SidebarIcon name="settings" />
           <span className="sidebar-tooltip">Settings</span>
         </Link>
-        <span className="avatar sidebar-avatar" aria-label="Your account">
-          Y
-        </span>
         <form action="/api/dashboard/logout" method="post">
-          <button className="dashboard-mobile-signout" type="submit">
-            Sign out
+          <button
+            aria-label="Sign out"
+            className="sidebar-link sidebar-signout"
+            title="Sign out"
+            type="submit"
+          >
+            <SidebarIcon name="logout" />
+            <span className="sidebar-tooltip">Sign out</span>
           </button>
         </form>
       </div>

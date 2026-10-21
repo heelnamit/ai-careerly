@@ -109,6 +109,13 @@ a {
     transform 160ms ease;
 }
 
+.sidebar-signout {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
 .sidebar-link:hover {
   transform: translateY(-1px);
   background: rgb(255 255 255 / 9%);
@@ -178,9 +185,7 @@ a {
   padding: 0 clamp(24px, 5vw, 68px);
 }
 
-.topbar-brand,
-.topbar-right,
-.topbar-status {
+.topbar-brand {
   display: flex;
   align-items: center;
 }
@@ -197,17 +202,6 @@ a {
   height: 30px;
   border-radius: 10px;
   font-size: 16px;
-}
-
-.topbar-right {
-  gap: 18px;
-}
-
-.topbar-status {
-  gap: 8px;
-  color: #6e7892;
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .status-dot {
@@ -904,16 +898,6 @@ a {
   overflow-wrap: anywhere;
 }
 
-.overview-user-name {
-  max-width: 180px;
-  overflow: hidden;
-  color: #6e7892;
-  font-size: 11px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .home-profile-link {
   display: inline-flex;
   align-items: center;
@@ -1229,29 +1213,6 @@ a {
   border-color: #cdeee0;
   background: #f2fcf7;
   color: #247955;
-}
-
-.dashboard-signout {
-  border: 0;
-  background: transparent;
-  color: #6656e9;
-  cursor: pointer;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.dashboard-mobile-signout {
-  display: none;
-  border: 1px solid rgb(255 255 255 / 18%);
-  border-radius: 9px;
-  background: transparent;
-  padding: 7px 9px;
-  color: #fff;
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 650;
 }
 
 .dashboard-profile-action {
@@ -1963,13 +1924,6 @@ a {
     display: flex;
   }
 
-  .dashboard-mobile-signout {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 34px;
-  }
-
   .sidebar-link {
     width: 40px;
     height: 40px;
@@ -2044,11 +1998,6 @@ a {
 
   .sidebar-bottom {
     gap: 5px;
-  }
-
-  .dashboard-mobile-signout {
-    padding: 6px 7px;
-    font-size: 9px;
   }
 
   .dashboard-main {
